@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/alexflint/go-arg"
@@ -21,24 +22,27 @@ type args struct {
 type attack struct {
 	url                  string
 	rps                  uint
-	totalSuccesses       *int64
-	totalFails           *int64
+	totalRequests        *uint64
+	totalSuccesses       *uint64
+	totalFails           *uint64
 	currentRate          *uint64
 	currentRateToDisplay *uint64
-	totalSeconds         *int64
+	totalSeconds         *uint64
 }
 
 func newAttack(url string, rps uint) attack {
 	var counter uint64
 	var current uint64
-	var succ int64
-	var fail int64
-	var sec int64
+	var total uint64
+	var succ uint64
+	var fail uint64
+	var sec uint64
 	return attack{
 		url:                  url,
 		rps:                  rps,
 		currentRate:          &counter,
 		currentRateToDisplay: &current,
+		totalRequests:        &total,
 		totalSuccesses:       &succ,
 		totalFails:           &fail,
 		totalSeconds:         &sec,
@@ -51,18 +55,19 @@ func runAttack(attack attack) {
 		select {
 		case <-ticker.C:
 			go func() {
-				*attack.currentRate++
+				atomic.AddUint64(attack.currentRate, 1)
+				atomic.AddUint64(attack.totalRequests, 1)
 				res, err := http.Get(attack.url)
 				if err != nil {
-					*attack.totalFails++
+					atomic.AddUint64(attack.totalFails, 1)
 					return
 				}
 				defer res.Body.Close()
 				if res.StatusCode >= 200 && res.StatusCode < 300 {
-					*attack.totalSuccesses++
+					atomic.AddUint64(attack.totalSuccesses, 1)
 				}
 				if res.StatusCode >= 400 {
-					*attack.totalFails++
+					atomic.AddUint64(attack.totalFails, 1)
 				}
 			}()
 		}
@@ -156,9 +161,10 @@ func (m model) View() string {
 
 	s := fmt.Sprint("\n", m.spin.View(), " ", m.attack.url)
 	s += fmt.Sprint("\n    Current rate: ", formatUInt(*m.attack.currentRateToDisplay, "#00A5D4"), " req/s")
-	s += fmt.Sprintf("\n    Time passed: %s s", formatInt(*m.attack.totalSeconds, "#00A5D4"))
-	s += fmt.Sprintf("\n    Total successes: %s", formatInt(*m.attack.totalSuccesses, "#00CC3E"))
-	s += fmt.Sprintf("\n    Total fails: %s", formatInt(*m.attack.totalFails, "#CC0000"))
+	s += fmt.Sprintf("\n    Time passed: %s s", formatUInt(*m.attack.totalSeconds, "#00A5D4"))
+	s += fmt.Sprint("\n    Total requests: ", formatUInt(*m.attack.totalRequests, "#00A5D4"))
+	s += fmt.Sprintf("\n    Total successes (2xx): %s", formatUInt(*m.attack.totalSuccesses, "#00CC3E"))
+	s += fmt.Sprintf("\n    Total fails (4xx, 5xx): %s", formatUInt(*m.attack.totalFails, "#CC0000"))
 
 	successRate := 0.0
 	var total = float64(*m.attack.totalSuccesses + *m.attack.totalFails)

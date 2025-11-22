@@ -22,6 +22,7 @@ $ ./pa --url http://local.lan/ping --rps 100
 - Real-time, colored statistics:
   - Current requests per second (RPS)
   - Time passed since start
+  - Total requests
   - Total successful requests (`2xx` status codes)
   - Total failed requests (network errors or `4xx`/`5xx` status codes)
   - Percentage of successful requests
