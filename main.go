@@ -5,7 +5,6 @@ import (
 	"net/http"
 	"os"
 	"strconv"
-	"sync/atomic"
 	"time"
 
 	"github.com/alexflint/go-arg"
@@ -27,10 +26,6 @@ type attack struct {
 	currentRate          *uint64
 	currentRateToDisplay *uint64
 	totalSeconds         *int64
-}
-
-func (s attack) incrementRate() {
-	atomic.AddUint64(s.currentRate, 1)
 }
 
 func newAttack(url string, rps uint) attack {
@@ -56,7 +51,7 @@ func runAttack(attack attack) {
 		select {
 		case <-ticker.C:
 			go func() {
-				attack.incrementRate()
+				*attack.currentRate++
 				res, err := http.Get(attack.url)
 				if err != nil {
 					*attack.totalFails++
@@ -121,10 +116,9 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tickMsg:
-		current := atomic.LoadUint64(m.attack.currentRate)
-		atomic.SwapUint64(m.attack.currentRateToDisplay, current)
-		atomic.SwapUint64(m.attack.currentRate, 0)
-		atomic.AddInt64(m.attack.totalSeconds, 1)
+		*m.attack.currentRateToDisplay = *m.attack.currentRate
+		*m.attack.currentRate = 0
+		*m.attack.totalSeconds++
 		return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
 			return tickMsg(t)
 		})
