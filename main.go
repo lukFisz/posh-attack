@@ -122,8 +122,8 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tickMsg:
 		*m.attack.currentRateToDisplay = *m.attack.currentRate
-		*m.attack.currentRate = 0
 		*m.attack.totalSeconds++
+		atomic.SwapUint64(m.attack.currentRate, 0)
 		return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
 			return tickMsg(t)
 		})
