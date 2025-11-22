@@ -11,7 +11,7 @@ The application leverages the Bubble Tea library to create an aesthetically plea
 ## Preview
 
 ```
-$ ./pa --url https://example.com --rps 100
+$ ./pa --url http://local.lan/ping --rps 100
 ```
 ![img.png](preview.png)
 

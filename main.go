@@ -26,6 +26,7 @@ type attack struct {
 	totalFails           *int64
 	currentRate          *uint64
 	currentRateToDisplay *uint64
+	totalSeconds         *int64
 }
 
 func (s attack) incrementRate() {
@@ -37,6 +38,7 @@ func newAttack(url string, rps uint) attack {
 	var current uint64
 	var succ int64
 	var fail int64
+	var sec int64
 	return attack{
 		url:                  url,
 		rps:                  rps,
@@ -44,6 +46,7 @@ func newAttack(url string, rps uint) attack {
 		currentRateToDisplay: &current,
 		totalSuccesses:       &succ,
 		totalFails:           &fail,
+		totalSeconds:         &sec,
 	}
 }
 
@@ -121,6 +124,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		current := atomic.LoadUint64(m.attack.currentRate)
 		atomic.SwapUint64(m.attack.currentRateToDisplay, current)
 		atomic.SwapUint64(m.attack.currentRate, 0)
+		atomic.AddInt64(m.attack.totalSeconds, 1)
 		return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
 			return tickMsg(t)
 		})
@@ -158,6 +162,7 @@ func (m model) View() string {
 
 	s := fmt.Sprint("\n", m.spin.View(), " ", m.attack.url)
 	s += fmt.Sprint("\n    Current rate: ", formatUInt(*m.attack.currentRateToDisplay, "#00A5D4"), " req/s")
+	s += fmt.Sprintf("\n    Time passed: %s s", formatInt(*m.attack.totalSeconds, "#00A5D4"))
 	s += fmt.Sprintf("\n    Total successes: %s", formatInt(*m.attack.totalSuccesses, "#00CC3E"))
 	s += fmt.Sprintf("\n    Total fails: %s", formatInt(*m.attack.totalFails, "#CC0000"))
 
