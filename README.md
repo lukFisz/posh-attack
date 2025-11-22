@@ -21,6 +21,7 @@ $ ./pa --url http://local.lan/ping --rps 100
 - Terminal Interface with a loading spinner.
 - Real-time, colored statistics:
   - Current requests per second (RPS)
+  - Time passed since start
   - Total successful requests (`2xx` status codes)
   - Total failed requests (network errors or `4xx`/`5xx` status codes)
   - Percentage of successful requests
