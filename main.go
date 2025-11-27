@@ -49,6 +49,38 @@ func newAttack(url string, rps uint) attack {
 	}
 }
 
+func main() {
+	var args args
+	arg.MustParse(&args)
+	if args.Rps == 0 {
+		fmt.Println(
+			lipgloss.
+				NewStyle().
+				Background(lipgloss.Color("205")).
+				Padding(0, 5).
+				Render("rps can't be 0"))
+		os.Exit(1)
+	}
+	attack := newAttack(args.Url, args.Rps)
+	p := tea.NewProgram(initialModel(attack))
+	if _, err := p.Run(); err != nil {
+		fmt.Printf("Alas, there's been an error: %v", err)
+		os.Exit(1)
+	}
+}
+
+func syncStatsPerSecond(attack attack) {
+	ticker := time.NewTicker(time.Second)
+	for {
+		select {
+		case <-ticker.C:
+			*attack.currentRateToDisplay = *attack.currentRate
+			atomic.SwapUint64(attack.currentRate, 0)
+			*attack.totalSeconds++
+		}
+	}
+}
+
 func runAttack(attack attack) {
 	ticker := time.NewTicker(time.Duration(1_000_000_000 / int64(attack.rps)))
 	for {
@@ -74,26 +106,6 @@ func runAttack(attack attack) {
 	}
 }
 
-func main() {
-	var args args
-	arg.MustParse(&args)
-	if args.Rps == 0 {
-		fmt.Println(
-			lipgloss.
-				NewStyle().
-				Background(lipgloss.Color("205")).
-				Padding(0, 5).
-				Render("rps can't be 0"))
-		os.Exit(1)
-	}
-	attack := newAttack(args.Url, args.Rps)
-	p := tea.NewProgram(initialModel(attack))
-	if _, err := p.Run(); err != nil {
-		fmt.Printf("Alas, there's been an error: %v", err)
-		os.Exit(1)
-	}
-}
-
 type model struct {
 	attack attack
 	spin   spinner.Model
@@ -109,10 +121,11 @@ func initialModel(attack attack) model {
 type tickMsg time.Time
 
 func (m model) Init() tea.Cmd {
+	go syncStatsPerSecond(m.attack)
 	go runAttack(m.attack)
 	return tea.Batch(
 		m.spin.Tick,
-		tea.Tick(time.Second, func(t time.Time) tea.Msg {
+		tea.Tick(time.Millisecond, func(t time.Time) tea.Msg {
 			return tickMsg(t)
 		}),
 	)
@@ -121,10 +134,7 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tickMsg:
-		*m.attack.currentRateToDisplay = *m.attack.currentRate
-		*m.attack.totalSeconds++
-		atomic.SwapUint64(m.attack.currentRate, 0)
-		return m, tea.Tick(time.Second, func(t time.Time) tea.Msg {
+		return m, tea.Tick(time.Millisecond, func(t time.Time) tea.Msg {
 			return tickMsg(t)
 		})
 	case tea.KeyMsg:
