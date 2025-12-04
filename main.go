@@ -17,35 +17,44 @@ import (
 type args struct {
 	Url string `arg:"required" help:"URL; GET request only"`
 	Rps uint   `arg:"required" help:"Request per second"`
+	Max int64  `arg:"--max" help:"Max total request" default:"1000"`
 }
 
 type attack struct {
-	url                  string
-	rps                  uint
-	totalRequests        *uint64
-	totalSuccesses       *uint64
-	totalFails           *uint64
-	currentRate          *uint64
-	currentRateToDisplay *uint64
-	totalSeconds         *uint64
+	url                           string
+	rps                           uint
+	totalRequests                 *uint64
+	totalSuccesses                *uint64
+	totalFails                    *uint64
+	currentRate                   *uint64
+	currentRateToDisplay          *uint64
+	currentGoroutinesNumToDisplay *int64
+	totalSeconds                  *uint64
+	maxGoroutines                 *int64
+	numberGoroutines              *int64
 }
 
-func newAttack(url string, rps uint) attack {
+func newAttack(url string, rps uint, max int64) attack {
 	var counter uint64
 	var current uint64
+	var currentGoc int64
 	var total uint64
 	var succ uint64
 	var fail uint64
 	var sec uint64
+	var cour int64
 	return attack{
-		url:                  url,
-		rps:                  rps,
-		currentRate:          &counter,
-		currentRateToDisplay: &current,
-		totalRequests:        &total,
-		totalSuccesses:       &succ,
-		totalFails:           &fail,
-		totalSeconds:         &sec,
+		url:                           url,
+		rps:                           rps,
+		currentRate:                   &counter,
+		currentRateToDisplay:          &current,
+		totalRequests:                 &total,
+		totalSuccesses:                &succ,
+		totalFails:                    &fail,
+		totalSeconds:                  &sec,
+		maxGoroutines:                 &max,
+		numberGoroutines:              &cour,
+		currentGoroutinesNumToDisplay: &currentGoc,
 	}
 }
 
@@ -61,7 +70,7 @@ func main() {
 				Render("rps can't be 0"))
 		os.Exit(1)
 	}
-	attack := newAttack(args.Url, args.Rps)
+	attack := newAttack(args.Url, args.Rps, args.Max)
 	p := tea.NewProgram(initialModel(attack))
 	if _, err := p.Run(); err != nil {
 		fmt.Printf("Alas, there's been an error: %v", err)
@@ -87,11 +96,16 @@ func runAttack(attack attack) {
 		select {
 		case <-ticker.C:
 			go func() {
+				if *attack.maxGoroutines <= atomic.LoadInt64(attack.numberGoroutines) {
+					return
+				}
+				atomic.AddInt64(attack.numberGoroutines, 1)
 				atomic.AddUint64(attack.currentRate, 1)
 				atomic.AddUint64(attack.totalRequests, 1)
 				res, err := http.Get(attack.url)
 				if err != nil {
 					atomic.AddUint64(attack.totalFails, 1)
+					atomic.AddInt64(attack.numberGoroutines, -1)
 					return
 				}
 				defer res.Body.Close()
@@ -101,6 +115,7 @@ func runAttack(attack attack) {
 				if res.StatusCode >= 400 {
 					atomic.AddUint64(attack.totalFails, 1)
 				}
+				atomic.AddInt64(attack.numberGoroutines, -1)
 			}()
 		}
 	}
@@ -134,7 +149,8 @@ func (m model) Init() tea.Cmd {
 func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tickMsg:
-		return m, tea.Tick(time.Millisecond, func(t time.Time) tea.Msg {
+		*m.attack.currentGoroutinesNumToDisplay = *m.attack.numberGoroutines
+		return m, tea.Tick(100*time.Millisecond, func(t time.Time) tea.Msg {
 			return tickMsg(t)
 		})
 	case tea.KeyMsg:
@@ -149,22 +165,6 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	return m, nil
-}
-
-var numberStyle = lipgloss.NewStyle().
-	Bold(true)
-
-func formatInt(int int64, color string) string {
-	return numberStyle.Foreground(lipgloss.Color(color)).Render(strconv.FormatInt(int, 10))
-}
-
-func formatUInt(uint uint64, color string) string {
-	return numberStyle.Foreground(lipgloss.Color(color)).Render(strconv.FormatUint(uint, 10))
-}
-
-func formatFloat(float float64, color string) string {
-	return numberStyle.Foreground(lipgloss.Color(color)).
-		Render(strconv.FormatFloat(float, 'f', 2, 64))
 }
 
 func (m model) View() string {
@@ -182,9 +182,32 @@ func (m model) View() string {
 		successRate = (float64(*m.attack.totalSuccesses) / total) * 100.0
 	}
 
-	s += fmt.Sprintf("\n    Success rate (%%): %s", formatFloat(successRate, "#00CC3E"))
+	s += fmt.Sprintf("\n    Success rate: %s %%", formatFloat(successRate, "#00CC3E"))
+	s += fmt.Sprintf(
+		"\n    Goroutines: %s/%d",
+		formatInt(fmt.Sprintf("%4d", *m.attack.currentGoroutinesNumToDisplay), "#00A5D4"),
+		*m.attack.maxGoroutines,
+	)
 
 	s += "\n\nPress q to quit.\n"
 
 	return s
+}
+
+var numberStyle = lipgloss.NewStyle().
+	Bold(true)
+
+func formatInt(int string, color string) string {
+	return numberStyle.
+		Foreground(lipgloss.Color(color)).
+		Render(int)
+}
+
+func formatUInt(uint uint64, color string) string {
+	return numberStyle.Foreground(lipgloss.Color(color)).Render(strconv.FormatUint(uint, 10))
+}
+
+func formatFloat(float float64, color string) string {
+	return numberStyle.Foreground(lipgloss.Color(color)).
+		Render(strconv.FormatFloat(float, 'f', 2, 64))
 }
